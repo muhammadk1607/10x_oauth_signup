@@ -28,56 +28,44 @@ class ResUsers(models.Model):
                 )
             values["partner_id"] = partner.id
 
-        # Create user (will be portal by default)
+        # Create user
         new_user = super()._signup_create_user(values)
 
         if is_company_email:
-            # Upgrade to internal user via direct SQL
-            self._make_user_internal(new_user.id)
+            _logger.info("Upgrading user %s to internal", new_user.login)
+
+            # Get groups using env.ref
+            internal_group = self.env.ref("base.group_user")
+            portal_group = self.env.ref("base.group_portal")
+
             _logger.info(
-                "Created internal user: %s (ID: %s)", new_user.login, new_user.id
+                "Internal group ID: %s, Portal group ID: %s",
+                internal_group.id,
+                portal_group.id,
             )
 
-        return new_user
+            # Remove from portal
+            self.env.cr.execute(
+                """
+                DELETE FROM res_groups_users_rel
+                WHERE uid = %s AND gid = %s
+            """,
+                (new_user.id, portal_group.id),
+            )
 
-    def _make_user_internal(self, user_id):
-        """Upgrade user to internal via SQL"""
-        # Get group IDs
-        self.env.cr.execute(
-            """
-            SELECT id FROM res_groups WHERE xml_id = 'base.group_user'
-        """
-        )
-        internal_group_result = self.env.cr.fetchone()
-
-        self.env.cr.execute(
-            """
-            SELECT id FROM res_groups WHERE xml_id = 'base.group_portal'
-        """
-        )
-        portal_group_result = self.env.cr.fetchone()
-
-        if internal_group_result:
-            internal_group_id = internal_group_result[0]
-
-            # Add internal user group
+            # Add to internal
             self.env.cr.execute(
                 """
                 INSERT INTO res_groups_users_rel (uid, gid)
                 VALUES (%s, %s)
                 ON CONFLICT DO NOTHING
             """,
-                (user_id, internal_group_id),
+                (new_user.id, internal_group.id),
             )
 
-        if portal_group_result:
-            portal_group_id = portal_group_result[0]
+            # Invalidate cache so changes are visible
+            new_user.invalidate_recordset(["groups_id"])
 
-            # Remove portal group
-            self.env.cr.execute(
-                """
-                DELETE FROM res_groups_users_rel
-                WHERE uid = %s AND gid = %s
-            """,
-                (user_id, portal_group_id),
-            )
+            _logger.info("User %s upgraded to internal user", new_user.login)
+
+        return new_user
