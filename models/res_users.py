@@ -1,4 +1,8 @@
+import logging
+
 from odoo import api, models
+
+_logger = logging.getLogger(__name__)
 
 
 class ResUsers(models.Model):
@@ -19,9 +23,11 @@ class ResUsers(models.Model):
         partner = self.env["res.partner"].search([("email", "=", email)], limit=1)
 
         if partner:
+            _logger.info("Found existing partner for %s", email)
             # Partner exists, use it
             values["partner_id"] = partner.id
         else:
+            _logger.info("Creating new partner for %s", email)
             # Create new partner
             partner = self.env["res.partner"].create(
                 {
@@ -35,5 +41,7 @@ class ResUsers(models.Model):
         # Make internal user
         internal_group = self.env.ref("base.group_user")
         values["groups_id"] = [(6, 0, [internal_group.id])]
+
+        _logger.info("Created internal user %s", values["login"])
 
         return values
