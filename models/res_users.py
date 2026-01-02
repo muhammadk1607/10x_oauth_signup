@@ -10,50 +10,46 @@ class ResUsers(models.Model):
 
     @api.model
     def _signup_create_user(self, values):
-        """signup a new user using the template user"""
+        """Override to create internal users for 10xengineers.ai domain"""
 
         email = values.get("email")
 
-        if not email or not email.endswith("@10xengineers.ai"):
-            # Not a 10xengineers.ai email, return
-            return values
+        # Check if this is a 10xengineers.ai email
+        if email and email.endswith("@10xengineers.ai"):
+            _logger.info("Creating internal user for %s", email)
 
-        # Try to find existing partner by email
-        partner = self.env["res.partner"].search([("email", "=", email)], limit=1)
+            # Find or create partner
+            partner = self.env["res.partner"].search([("email", "=", email)], limit=1)
 
-        if partner:
-            _logger.info("Found existing partner for %s", email)
-            # Partner exists, use it
-            values["partner_id"] = partner.id
-        else:
-            _logger.info("Creating new partner for %s", email)
-            # Create new partner
-            partner = self.env["res.partner"].create(
-                {
-                    "name": values.get("name"),
-                    "email": email,
-                    "company_type": "person",
-                }
+            if partner:
+                _logger.info("Found existing partner for %s", email)
+                values["partner_id"] = partner.id
+            else:
+                _logger.info("Creating new partner for %s", email)
+                partner = self.env["res.partner"].create(
+                    {
+                        "name": values.get("name"),
+                        "email": email,
+                        "company_type": "person",
+                    }
+                )
+                values["partner_id"] = partner.id
+
+            # Don't set groups_id in values - it will be handled after user creation
+            # Call parent to create the user
+            new_user = super()._signup_create_user(values)
+
+            # Now add internal user group
+            internal_group = self.env.ref("base.group_user")
+            portal_group = self.env.ref("base.group_portal")
+
+            # Remove portal group and add internal user group
+            new_user.write(
+                {"groups_id": [(3, portal_group.id), (4, internal_group.id)]}
             )
-            values["partner_id"] = partner.id
 
-        _logger.info("Creating internal user %s", values["login"])
+            _logger.info("Successfully created internal user: %s", new_user.login)
+            return new_user
 
-        # Create internal user with base.group_user access
-        new_user = (
-            self.env["res.users"]
-            .sudo()
-            .create(
-                {
-                    "name": values.get("name"),
-                    "login": values.get("login"),
-                    "email": email,
-                    "oauth_provider_id": values.get("oauth_provider_id"),
-                    "oauth_uid": values.get("oauth_uid"),
-                    "partner_id": partner.id,
-                    "groups_id": [(4, self.env.ref("base.group_user").id)],
-                }
-            )
-        )
-
-        return new_user
+        # For non-10xengineers.ai emails, use default behavior
+        return super()._signup_create_user(values)
