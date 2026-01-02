@@ -1,0 +1,39 @@
+from odoo import api, models
+
+
+class ResUsers(models.Model):
+    _inherit = "res.users"
+
+    @api.model
+    def _generate_signup_values(self, provider, validation, params):
+        """Override to find/create partner and set as internal user"""
+        values = super()._generate_signup_values(provider, validation, params)
+
+        email = validation.get("email") or params.get("email")
+
+        if not email or not email.endswith("@10xengineers.ai"):
+            # Not a 10xengineers.ai email, return
+            return values
+
+        # Try to find existing partner by email
+        partner = self.env["res.partner"].search([("email", "=", email)], limit=1)
+
+        if partner:
+            # Partner exists, use it
+            values["partner_id"] = partner.id
+        else:
+            # Create new partner
+            partner = self.env["res.partner"].create(
+                {
+                    "name": validation.get("name"),
+                    "email": email,
+                    "company_type": "person",
+                }
+            )
+            values["partner_id"] = partner.id
+
+        # Make internal user
+        internal_group = self.env.ref("base.group_user")
+        values["groups_id"] = [(6, 0, [internal_group.id])]
+
+        return values
