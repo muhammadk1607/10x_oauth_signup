@@ -40,16 +40,20 @@ class ResUsers(models.Model):
         _logger.info("Creating internal user %s", values["login"])
 
         # Create internal user with base.group_user access
-        new_user = self.env["res.users"].create(
-            {
-                "name": values.get("name"),
-                "login": values.get("login"),
-                "email": email,
-                "oauth_provider_id": values.get("oauth_provider_id"),
-                "oauth_uid": values.get("oauth_uid"),
-                "partner_id": partner.id,
-                "groups_id": [(4, self.env.ref("base.group_user").id)],
-            }
+        new_user = (
+            self.env["res.users"]
+            .sudo()
+            .create(
+                {
+                    "name": values.get("name"),
+                    "login": values.get("login"),
+                    "email": email,
+                    "oauth_provider_id": values.get("oauth_provider_id"),
+                    "oauth_uid": values.get("oauth_uid"),
+                    "partner_id": partner.id,
+                    "groups_id": [(4, self.env.ref("base.group_user").id)],
+                }
+            )
         )
 
         return new_user
