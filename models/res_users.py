@@ -39,10 +39,17 @@ class ResUsers(models.Model):
 
         _logger.info("Creating internal user %s", values["login"])
 
-        self.env["res.users"].create(values)
+        # Create internal user with base.group_user access
+        new_user = self.env["res.users"].create(
+            {
+                "name": values.get("name"),
+                "login": values.get("login"),
+                "email": email,
+                "oauth_provider_id": values.get("oauth_provider_id"),
+                "oauth_uid": values.get("oauth_uid"),
+                "partner_id": partner.id,
+                "groups_id": [(4, self.env.ref("base.group_user").id)],
+            }
+        )
 
-        _logger.info("Created internal user %s", values["login"])
-
-        partner.write({"user_id": values["id"]})
-
-        _logger.info("Set partner user_id to %s", values["login"])
+        return new_user
