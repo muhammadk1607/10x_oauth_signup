@@ -75,11 +75,7 @@ class ResUsers(models.Model):
             )
             values["partner_id"] = partner.id
 
-        # Make internal user
-        internal_group = self.env.ref("base.group_user")
-        values["groups_id"] = [(6, 0, [internal_group.id])]
-
-        _logger.info("Created internal user %s", values["login"])
+        _logger.info("Creating internal user %s", values["login"])
 
         self.env["res.users"].create(values)
 
