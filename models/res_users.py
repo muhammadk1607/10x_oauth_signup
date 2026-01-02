@@ -16,6 +16,8 @@ class ResUsers(models.Model):
         is_company_email = email and email.endswith("@10xengineers.ai")
 
         if is_company_email:
+            _logger.info("Processing company email: %s", email)
+
             # Find or create partner
             partner = self.env["res.partner"].search([("email", "=", email)], limit=1)
             if not partner:
@@ -28,23 +30,23 @@ class ResUsers(models.Model):
                 )
             values["partner_id"] = partner.id
 
+            # In Odoo 19, set share=False to make internal user
+            values["share"] = False
+
         # Create user
         new_user = super()._signup_create_user(values)
 
         if is_company_email:
-            _logger.info("Upgrading user %s to internal", new_user.login)
+            _logger.info("Setting user %s as internal user", new_user.login)
 
-            # Get groups using env.ref
+            # Ensure share is False (internal user)
+            new_user.sudo().write({"share": False})
+
+            # Add to internal user group explicitly
             internal_group = self.env.ref("base.group_user")
             portal_group = self.env.ref("base.group_portal")
 
-            _logger.info(
-                "Internal group ID: %s, Portal group ID: %s",
-                internal_group.id,
-                portal_group.id,
-            )
-
-            # Remove from portal
+            # Update groups via SQL for reliability
             self.env.cr.execute(
                 """
                 DELETE FROM res_groups_users_rel
@@ -53,7 +55,6 @@ class ResUsers(models.Model):
                 (new_user.id, portal_group.id),
             )
 
-            # Add to internal
             self.env.cr.execute(
                 """
                 INSERT INTO res_groups_users_rel (uid, gid)
@@ -63,9 +64,11 @@ class ResUsers(models.Model):
                 (new_user.id, internal_group.id),
             )
 
-            # Invalidate cache so changes are visible
-            new_user.invalidate_recordset(["groups_id"])
+            # Clear cache
+            new_user.invalidate_recordset()
 
-            _logger.info("User %s upgraded to internal user", new_user.login)
+            _logger.info(
+                "User %s created as internal user (share=False)", new_user.login
+            )
 
         return new_user
