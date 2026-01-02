@@ -6,7 +6,7 @@
     "author": "Muhammad Khan",
     "category": "Tools",
     "version": "1.0",
-    "depends": ["auth_oauth"],
+    "depends": ["auth_oauth", "auth_signup"],
     "data": [],
     "installable": True,
 }
