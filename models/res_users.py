@@ -13,19 +13,12 @@ class ResUsers(models.Model):
         """Override to create internal users for 10xengineers.ai domain"""
 
         email = values.get("email")
+        is_company_email = email and email.endswith("@10xengineers.ai")
 
-        # Check if this is a 10xengineers.ai email
-        if email and email.endswith("@10xengineers.ai"):
-            _logger.info("Creating internal user for %s", email)
-
+        if is_company_email:
             # Find or create partner
             partner = self.env["res.partner"].search([("email", "=", email)], limit=1)
-
-            if partner:
-                _logger.info("Found existing partner for %s", email)
-                values["partner_id"] = partner.id
-            else:
-                _logger.info("Creating new partner for %s", email)
+            if not partner:
                 partner = self.env["res.partner"].create(
                     {
                         "name": values.get("name"),
@@ -33,23 +26,58 @@ class ResUsers(models.Model):
                         "company_type": "person",
                     }
                 )
-                values["partner_id"] = partner.id
+            values["partner_id"] = partner.id
 
-            # Don't set groups_id in values - it will be handled after user creation
-            # Call parent to create the user
-            new_user = super()._signup_create_user(values)
+        # Create user (will be portal by default)
+        new_user = super()._signup_create_user(values)
 
-            # Now add internal user group
-            internal_group = self.env.ref("base.group_user")
-            portal_group = self.env.ref("base.group_portal")
-
-            # Remove portal group and add internal user group
-            new_user.write(
-                {"groups_id": [(3, portal_group.id), (4, internal_group.id)]}
+        if is_company_email:
+            # Upgrade to internal user via direct SQL
+            self._make_user_internal(new_user.id)
+            _logger.info(
+                "Created internal user: %s (ID: %s)", new_user.login, new_user.id
             )
 
-            _logger.info("Successfully created internal user: %s", new_user.login)
-            return new_user
+        return new_user
 
-        # For non-10xengineers.ai emails, use default behavior
-        return super()._signup_create_user(values)
+    def _make_user_internal(self, user_id):
+        """Upgrade user to internal via SQL"""
+        # Get group IDs
+        self.env.cr.execute(
+            """
+            SELECT id FROM res_groups WHERE xml_id = 'base.group_user'
+        """
+        )
+        internal_group_result = self.env.cr.fetchone()
+
+        self.env.cr.execute(
+            """
+            SELECT id FROM res_groups WHERE xml_id = 'base.group_portal'
+        """
+        )
+        portal_group_result = self.env.cr.fetchone()
+
+        if internal_group_result:
+            internal_group_id = internal_group_result[0]
+
+            # Add internal user group
+            self.env.cr.execute(
+                """
+                INSERT INTO res_groups_users_rel (uid, gid)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+            """,
+                (user_id, internal_group_id),
+            )
+
+        if portal_group_result:
+            portal_group_id = portal_group_result[0]
+
+            # Remove portal group
+            self.env.cr.execute(
+                """
+                DELETE FROM res_groups_users_rel
+                WHERE uid = %s AND gid = %s
+            """,
+                (user_id, portal_group_id),
+            )
